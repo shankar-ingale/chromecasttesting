@@ -1,0 +1,185 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>Secret message, Party Edition</title>
+
+    <style type="text/css">
+      body {
+        font-family: Roboto, Helvetica, sans-serif;
+        padding: 1em;
+      }
+      #instructions {
+        background-color: #eee;
+        padding: 1em;
+        margin: 1em;
+      }
+    
+      input, button {
+        font-size: 1.6em;
+        font-weight: bold;
+        margin: 0.2em;
+      }
+      #message {
+        width: 100%;
+      }
+    </style>
+  </head>
+  
+  <body>
+  
+  <h1>Secret message, Party Edition</h1>
+  <p>Because anonymous messaging to a big screen at a party is a great idea.</p>
+
+  <div id="instructions"></div>
+
+  <div>
+    <input id="message" type="text">
+    <button id="sendMessage">Send</button>
+  </div>
+</div>
+
+<script src='https://ajax.googleapis.com/ajax/libs/jquery/1.9.0/jquery.min.js'></script>
+<script src='https://cdn.firebase.com/js/client/2.2.1/firebase.js'></script>
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js"></script>
+
+<script>
+$(document).ready(function($) {
+  secretPartyMessages.init();
+});
+var secretPartyMessages = (function () {
+  
+  // Use our custom receiver
+  var applicationId = 'BBDEF43E';
+  var namespace = 'urn:x-cast:com.gdgoakdale.cast.codelab.secretmessage';
+  var session = null;
+  var baseRef = new Firebase("https://gdg-oakdale-codelab-2015.firebaseio.com");
+  var secrets =  baseRef.child("secrets");
+  var url;
+
+  initializeCastApi = function() {
+	  alert("init");
+    var sessionRequest = new chrome.cast.SessionRequest(applicationId);
+    alert(sessionRequest);
+    var apiConfig = new chrome.cast.ApiConfig(sessionRequest,
+      sessionListener,
+      receiverListener);
+    chrome.cast.initialize(apiConfig, onInitializeSuccess, onError);
+  };
+  onInitializeSuccess = function() {
+    console.log("Successfully initialed Chromecast API");
+  };
+  receiverListener = function(event) {
+    if(event === 'available') {
+      console.log("receiver found");
+    }
+    else {
+       console.log("receiver list empty");
+    }
+  }
+  sessionListener = function(event){
+    console.log("Session ID: %s", event.sessionId);
+    session = event;
+    //
+    session.addUpdateListener(sessionUpdateListener);
+    // Get messages from receiver
+    session.addMessageListener(namespace, receiverMessage);
+    session.sendMessage(namespace, 
+          url,
+          onSuccess.bind(this, "URL sent: " + url), 
+          onError);
+  }
+  // Are we alive?
+  sessionUpdateListener = function(isAlive) {
+    var message = isAlive ? 'Session Updated' : 'Session Removed';
+    message += ': ' + session.sessionId;
+    console.log(message);
+    if (!isAlive) {
+      session = null;
+    }
+  };
+  // Log message from the receiver
+  receiverMessage = function(namespace, message) {
+    console.log("receiverMessage: %s, %s", namespace, message);
+  };
+  onError = function(message) {
+    console.log("onError fired!", message);
+  };
+  onSuccess = function(message) {
+    console.log("onSuccess fired!", message);
+  };
+  onStopAppSuccess = function() {
+    console.log('onStopAppSuccess fired!');
+  };
+  generateUrl = function(length) {
+    var string = "";
+    // no L and O
+    var inputs = "abcdefghijkmnpqrstuvwxyz0123456789";
+    for(var i = 0; i < length; i++ ) {
+      string += inputs.charAt(Math.floor(Math.random() * inputs.length));
+    }
+    return string;
+  };
+  getParameterByName = function(name) {
+      name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");
+      var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"),
+          results = regex.exec(location.search);
+      return results === null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
+  };
+  sendMessage = function(message) {
+    if (session !== null) {
+      session.sendMessage(namespace, 
+        message, 
+        onSuccess.bind(this, "Message sent: " + message), 
+        onError);
+    }
+    else {
+      chrome.cast.requestSession(function(e) {
+          session = e;
+          session.sendMessage(namespace, 
+            message, 
+            onSuccess.bind(this, "Message sent: " + message), 
+            onError);
+        }, onError);
+    }
+  };
+  stop = function() {
+    session.stop(onStopAppSuccess, onError);
+  };
+  return {
+    init: function() {
+      var testUrl = getParameterByName('shhhh');
+      if (testUrl !== '') {
+        
+        $("#instructions").text("You're connected to the party! Start sending messages to the screen!");
+      } else {
+        url = generateUrl(6);
+        $("#secretPartyMessagesUrl").text(url);
+        $("#instructions").html("Cast to a Chromecast and then send <em>" + 
+          document.location.origin + "?shhhh=" + url + "</em> to your party guests.");
+          secrets.child(url).on('child_added',  function(snapshot){
+            var data = snapshot.val();
+            sendMessage(data.message);
+          });
+      }
+      $('#sendMessage').on('click', function(){
+        var message = $('#message').val();
+        alert(message)
+        var getUrl = getParameterByName('shhhh');
+        if (getUrl !== '') {
+          secrets.child(getUrl).push({'message': message});
+        } else {
+          secrets.child(url).push({'message': message});
+        }
+        
+      });
+      if (!chrome.cast || !chrome.cast.isAvailable) {
+        setTimeout(initializeCastApi, 1000);
+      }
+    }
+  };
+})();
+</script>
+</body>
+</html>
